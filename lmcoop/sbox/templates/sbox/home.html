@@ -1,0 +1,125 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Welcome to Lucky and Miracle's coop!</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <script type="text/javascript" src="{% static 'sbox/dygraph.js' %}"></script>
+        <script type="text/javascript" src="{% static 'sbox/home.js' %}"></script>
+        <script type="text/javascript" src="{% static 'sbox/jquery-3.1.1.min.js' %}"></script>
+        <link rel="stylesheet" src="{% static 'sbox/dygraph.css' %}" />
+        <link rel="stylesheet" href="{% static 'sbox/w3.css' %}" />
+        <link rel="icon" href="{% static 'sbox/egg-icon.jpg' %}" type="image/jpg" sizes="16x16">    
+    </head>
+    
+    <body>
+        <header class="w3-container w3-black w3-center">
+            <h2>Welcome to Lucky and Miracle's coop!</h2>
+        </header>
+                
+        {% if image %}
+			<img width="95%" alt="Lucky and Miracle's coop" src="/static{{image}}">
+        {% endif %}
+        
+        <div class="w3-container w3-teal w3-center">
+			<h1>Temperature for the last 24 hours</h1>
+        </div>
+        <div id="graph_temp" style="height: 640px; width: 80%;" class="w3-container w3-center"></div>
+		
+        <div class="w3-container w3-teal w3-center">
+			<h1>Humidity for the last 24 hours</h1>
+        </div>
+        <div id="graph_humidity" style="height: 640px; width: 80%;" class="w3-container w3-center"></div>
+
+		<div class="w3-container w3-teal w3-center">
+		<h1>Max and Min temperatures for the inside</h1>
+		</div>
+        <div id="graphinside" style="height: 640px; width: 80%;"></div>
+		
+		<div class="w3-container w3-teal w3-center">
+		<h1>Max and Min temperatures for the outside</h1>
+		</div>
+        <div id="graphoutside" style="height: 640px; width: 80%;"></div>
+
+        <script type="text/javascript">
+            window.data = [];
+            {% for dht in dht_temps %}
+                window.data.push([new Date("{{dht.now|date:"D M d Y H:i:s e"}}"), {{dht.inside}}, {{dht.outside}}]);
+            {% endfor %}
+            window.g = new Dygraph(
+				document.getElementById("graph_temp"), window.data,
+				{
+					//legend: 'always',                                                                           
+					//title: 'Temperature for the last 24 hours',
+					//drawPoints: true,
+					//showRoller: true,
+					labels: ['Time', 'Inside', 'Outside'],
+					ylabel: 'Temperature (F)',                             
+					xlabel: 'Time',
+					labelsSeparateLines: true,
+					//showRangeSelector: true
+				}
+            );
+
+            window.humidity = [];
+            {% for dht in dht_hums %}
+                window.humidity.push([new Date("{{dht.now|date:"D M d Y H:i:s e"}}"), {{dht.inside}}, {{dht.outside}}]);
+            {% endfor %}
+            window.g = new Dygraph(
+				document.getElementById("graph_humidity"), window.humidity,
+				{
+					//legend: 'always',                                                                           
+					//title: 'Humidity for the last 24 hours',
+					//drawPoints: true,
+					//showRoller: true,
+					labels: ['Time', 'Inside', 'Outside'],
+					ylabel: 'Humidity (%)',                             
+					xlabel: 'Time',
+					labelsSeparateLines: true,
+					//showRangeSelector: true
+				}
+            );
+
+            window.maxmin_inside = [];
+            {% for maxmin in maxmin_inside %}
+                window.maxmin_inside.push([new Date("{{maxmin.date|date:"D M d Y H:i:s e"}}"), {{maxmin.temp}}]);
+            {% endfor %}
+            window.h = new Dygraph(
+				document.getElementById("graphinside"), window.maxmin_inside,
+				{
+					//legend: 'always',                                                                           
+					//title: 'Inside maximum and minimum temperatures',
+					//drawPoints: true,
+					//showRoller: true,
+					labels: ['Time', 'Temperature'],
+					ylabel: 'Temperature (F)',                             
+					xlabel: 'Time',
+					labelsSeparateLines: true,
+					//showRangeSelector: true
+				}
+            );
+
+            window.maxmin_outside = [];
+            {% for maxmin in maxmin_outside %}
+                window.maxmin_outside.push([new Date("{{maxmin.date|date:"D M d Y H:i:s e"}}"), {{maxmin.temp}}]);
+            {% endfor %}
+            window.h = new Dygraph(
+				document.getElementById("graphoutside"), window.maxmin_outside,
+				{
+					//legend: 'always',                                                                           
+					//title: 'Outside maximum and minimum temperatures',
+					//drawPoints: true,
+					//showRoller: true,
+					labels: ['Time', 'Temperature'],
+					ylabel: 'Temperature (F)',                             
+					xlabel: 'Time',
+					labelsSeparateLines: true,
+					//showRangeSelector: true
+				}
+            );
+            //window.setTimeout(timer, 1000)  
+        </script>
+        
+    </body>
+    
+</html>

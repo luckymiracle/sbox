@@ -1,0 +1,83 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Gas Measurements!</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <script type="text/javascript" src="{% static 'sbox/dygraph.js' %}"></script>
+        <script type="text/javascript" src="{% static 'sbox/home.js' %}"></script>
+        <script type="text/javascript" src="{% static 'sbox/jquery-3.1.1.min.js' %}"></script>
+        <link rel="stylesheet" src="{% static 'sbox/dygraph.css' %}" />
+        <link rel="stylesheet" href="{% static 'sbox/w3.css' %}" />
+        <link rel="icon" href="{% static 'sbox/egg-icon.jpg' %}" type="image/jpg" sizes="16x16">    
+    </head>
+    
+    <body>
+        <header class="w3-container w3-black w3-center">
+            <h2>Lucky and Miracle's box gas measurements!</h2>
+        </header>
+                        
+        <div class="w3-container w3-teal w3-center">
+			<h1>Ammonia levels for the last 7 days</h1>
+        </div>
+        <div id="graph_ammonia" style="height: 640px; width: 80%;" class="w3-container w3-center"></div>
+		
+
+        <div class="w3-container w3-teal w3-center">
+			<h1>Carbon monoxide levels for the last 7 days</h1>
+        </div>
+        <div id="graph_carbon_monoxide" style="height: 640px; width: 80%;" class="w3-container w3-center"></div>
+
+        <div class="w3-container w3-teal w3-center">
+			<h1>Nitrogen dioxide levels for the last 7 days</h1>
+        </div>
+        <div id="graph_nitrogen_dioxide" style="height: 640px; width: 80%;" class="w3-container w3-center"></div>
+
+        <script type="text/javascript">
+            window.data = [];
+            {% for data in ammonia %}
+                window.data.push([new Date("{{data.now|date:"D M d Y H:i:s e"}}"), {{data.ammonia}}, {{data.safe}}]);
+            {% endfor %}
+            window.g = new Dygraph(
+				document.getElementById("graph_ammonia"), window.data,
+				{
+					labels: ['Time', 'Ammonia', 'Safe'],
+					ylabel: 'Ammonia (ppm)',                             
+					xlabel: 'Time',
+					labelsSeparateLines: true,
+				}
+            );
+
+            window.carbon = [];
+            {% for data in carbon_monoxide %}
+                window.carbon.push([new Date("{{data.now|date:"D M d Y H:i:s e"}}"), {{data.carbon_monoxide}}, {{data.safe}}]);
+            {% endfor %}
+            window.g = new Dygraph(
+				document.getElementById("graph_carbon_monoxide"), window.carbon,
+				{
+					labels: ['Time', 'Carbon monoxide', 'Safe'],
+					ylabel: 'Carbon monoxide (ppm)',                             
+					xlabel: 'Time',
+					labelsSeparateLines: true,
+				}
+            );
+
+            window.nitrogen = [];
+            {% for data in nitrogen_dioxide %}
+                window.nitrogen.push([new Date("{{data.now|date:"D M d Y H:i:s e"}}"), {{data.nitrogen_dioxide}}, {{data.safe}}]);
+            {% endfor %}
+            window.g = new Dygraph(
+				document.getElementById("graph_nitrogen_dioxide"), window.nitrogen,
+				{
+					labels: ['Time', 'Nitrogen dioxide', 'Safe'],
+					ylabel: 'Nitrogen dioxide (ppm)',                             
+					xlabel: 'Time',
+					labelsSeparateLines: true,
+				}
+            );
+
+        </script>
+        
+    </body>
+    
+</html>
