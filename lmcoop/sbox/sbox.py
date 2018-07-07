@@ -4,16 +4,21 @@
 import time
 import re
 import os
+import datetime
 
 from email.mime.text import MIMEText
 from email.MIMEMultipart import MIMEMultipart
+from email import encoders
 from email.mime.image import MIMEImage
+from email.mime.base import MIMEBase
 from subprocess import call
 from threading import Timer
 import smtplib
 # import logging
 import serial
 import ephem
+import xlsxwriter
+from django.utils import timezone
 import models as mod
 
 
@@ -53,6 +58,7 @@ class SoundBox(object):
         #                    level=logging.DEBUG)
         # logging.info('Log start')
 
+        # self.send_msg("sunrise")
         self.comm_init()
         dht_timer = Timer(self.dht_interval, self.read_dhts)
         dht_timer.start()
@@ -236,7 +242,8 @@ class SoundBox(object):
                 print 'read_dhts incomplete DHT data', data
                 return
 
-            dht = mod.Outside_DHT(Temperature=(float(data[1])*1.8)+32,
+            outside_temperature = (float(data[1])*1.8)+32
+            dht = mod.Outside_DHT(Temperature=outside_temperature,
                                   Humidity=data[0])
             dht.save()
 
@@ -245,6 +252,8 @@ class SoundBox(object):
         ammonia = self.gas_sensor()
 
         if(self.is_it_day is False) and (ammonia >= 15 or inside_temperature >= 70):
+            self.cmd_send('fan_on')
+        elif self.is_it_day and inside_temperature >= outside_temperature and inside_temperature >= 70:
             self.cmd_send('fan_on')
         else:
             self.cmd_send('fan_off')
@@ -399,6 +408,8 @@ class SoundBox(object):
         """ Send a message with pictures and data. """
 
         print "send_msg", body_msg
+        t_s = time.gmtime()
+
         for email in mod.Email.objects.all():
             msg_from = email.from_email
             msg_to = email.to_email
@@ -408,17 +419,20 @@ class SoundBox(object):
             msg['Subject'] = "Lucky & Miracle: " + body_msg
 
             body = body_msg
-            body += '\nThe maximum temperature measured inside was '
-            body += str(maxmin_in.max_temp) + 'F at '
-            body += maxmin_in.max_temp_date.strftime('%y/%m/%d %H:%M:%S') + '\n'
-            body += '\nThe minimum temperature measured inside was ' + str(maxmin_in.min_temp)
-            body += 'F at ' + maxmin_in.min_temp_date.strftime('%y/%m/%d %H:%M:%S') + '\n'
-            body += '\nThe maximum temperature measured outside was '
-            body += str(maxmin_out.max_temp) + 'F at '
-            body += maxmin_out.max_temp_date.strftime('%y/%m/%d %H:%M:%S') + '\n'
-            body += '\nThe minimum temperature measured outside was '
-            body += str(maxmin_out.min_temp) + 'F at '
-            body += maxmin_out.min_temp_date.strftime('%y/%m/%d %H:%M:%S') + '\n'
+            if maxmin_in is not None:
+                body += '\nThe maximum temperature measured inside was '
+                body += str(maxmin_in.max_temp) + 'F at '
+                body += maxmin_in.max_temp_date.strftime('%y/%m/%d %H:%M:%S') + '\n'
+                body += '\nThe minimum temperature measured inside was ' + str(maxmin_in.min_temp)
+                body += 'F at ' + maxmin_in.min_temp_date.strftime('%y/%m/%d %H:%M:%S') + '\n'
+
+            if maxmin_out is not None:
+                body += '\nThe maximum temperature measured outside was '
+                body += str(maxmin_out.max_temp) + 'F at '
+                body += maxmin_out.max_temp_date.strftime('%y/%m/%d %H:%M:%S') + '\n'
+                body += '\nThe minimum temperature measured outside was '
+                body += str(maxmin_out.min_temp) + 'F at '
+                body += maxmin_out.min_temp_date.strftime('%y/%m/%d %H:%M:%S') + '\n'
 
             msg.attach(MIMEText(body, 'plain'))
             if image is not None:
@@ -426,11 +440,22 @@ class SoundBox(object):
                 img = MIMEImage(f_p.read())
                 f_p.close()
                 msg.attach(img)
+
             if image2 is not None:
                 f_p = open(image2, 'rb')
                 img = MIMEImage(f_p.read())
                 f_p.close()
                 msg.attach(img)
+
+            if t_s.tm_wday == 6 and re.search('sunrise', body_msg):
+                report_file = self.report()
+                f_p = open(report_file, 'rb')
+                report = MIMEBase('application', 'octet-stream')
+                report.set_payload(f_p.read())
+                f_p.close()
+                encoders.encode_base64(report)
+                report.add_header("Content-Disposition", "attachment", filename='report.xlsx')
+                msg.attach(report)
 
             try:
                 # if True:
@@ -516,3 +541,124 @@ class SoundBox(object):
         else:
             self.send_msg('Sunrise error: '+data, start_image, end_image,
                           maxmin_in=maxmin_in, maxmin_out=maxmin_out)
+
+    def report(self):
+        ''' Make a weekly report and send it on Sunday. '''
+
+        dir_p = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        report_file = os.path.join(dir_p, 'sbox/static/sbox/pictures/report.xlsx')
+        book = xlsxwriter.Workbook(report_file)
+        sheet = book.add_worksheet("Raw Data")
+        header = ["Date", "Inside Temperature", "Outside Temperature",
+                  "Inside Humidity", "Outside Humidity", "Ammonia",
+                  "Carbon Monoxide", "Nitrogen dioxide", "Propane",
+                  "Iso-butane", "Methane", "Hydrogen", "Ethanol"]
+
+        last_7_days = timezone.now() - datetime.timedelta(days=7)
+        i_w_t = mod.Inside_DHT.objects.filter(now__gte=last_7_days)
+        o_w_t = mod.Outside_DHT.objects.filter(now__gte=last_7_days)
+        o_w_g = mod.GasMeasure.objects.filter(now__gte=last_7_days)
+
+        for i, head in enumerate(header):
+            sheet.write_string(0, i, head)
+            sheet.set_column(i, i, len(head))
+
+        max_in_temp = 0
+        max_out_temp = 0
+        max_ammonia = 0
+        min_in_temp = 110
+        min_out_temp = 110
+        min_ammonia = 110
+
+        for i, data in enumerate(i_w_t):
+            sheet.write(i+1, 0, str(data.now))
+            sheet.write(i+1, 1, data.Temperature)
+            sheet.write(i+1, 3, data.Humidity)
+
+            if data.Temperature > max_in_temp:
+                max_in_temp = data.Temperature
+
+            elif data.Temperature < min_in_temp:
+                min_in_temp = data.Temperature
+
+            if len(o_w_t) > i:
+                sheet.write(i+1, 2, o_w_t[i].Temperature)
+                sheet.write(i+1, 4, o_w_t[i].Humidity)
+
+                if o_w_t[i].Temperature > max_out_temp:
+                    max_out_temp = o_w_t[i].Temperature
+
+                elif o_w_t[i].Temperature < min_out_temp:
+                    min_out_temp = o_w_t[i].Temperature
+
+            if len(o_w_g) > i:
+                sheet.write(i+1, 5, o_w_g[i].ammonia)
+                sheet.write(i+1, 6, o_w_g[i].carbon_monoxide)
+                sheet.write(i+1, 7, o_w_g[i].nitrogen_dioxide)
+                sheet.write(i+1, 8, o_w_g[i].propane)
+                sheet.write(i+1, 9, o_w_g[i].iso_butane)
+                sheet.write(i+1, 10, o_w_g[i].methane)
+                sheet.write(i+1, 11, o_w_g[i].hydrogen)
+                sheet.write(i+1, 12, o_w_g[i].ethanol)
+
+                if o_w_g[i].ammonia > max_ammonia:
+                    max_ammonia = o_w_g[i].ammonia
+
+                elif o_w_g[i].ammonia < min_ammonia:
+                    min_ammonia = o_w_g[i].ammonia
+
+        sheet = book.add_worksheet("Graphs")
+
+        chart = book.add_chart({'type': 'line'})
+        chart.set_title({'name': 'Inside Temperature'})
+        chart.set_legend({'none': True})
+        chart.set_x_axis({'name': 'Days', 'date_axis': True})
+        chart.set_y_axis({'name': 'Temperature', 'max': max_in_temp,
+                          'min': min_in_temp})
+        chart.set_size({'x_scale': 3, 'y_scale': 2})
+        chart.add_series({'categories': ['Raw Data', 1, 0, i, 0],
+                          'values': ['Raw Data', 1, 1, i, 1],
+                          'line': {'color': 'green'}})
+        sheet.insert_chart('A1', chart)
+
+        chart = book.add_chart({'type': 'line'})
+        chart.set_title({'name': 'Outside Temperature'})
+        chart.set_legend({'none': True})
+        chart.set_x_axis({'name': 'Days', 'date_axis': True})
+        chart.set_y_axis({'name': 'Temperature', 'max': max_out_temp,
+                          'min': min_out_temp})
+        chart.set_size({'x_scale': 3, 'y_scale': 2})
+        chart.add_series({'categories': ['Raw Data', 1, 0, i, 0],
+                          'values': ['Raw Data', 1, 2, i, 2],
+                          'line': {'color': 'blue'}})
+        sheet.insert_chart('A31', chart)
+
+        chart = book.add_chart({'type': 'line'})
+        chart.set_title({'name': 'Inside vs. Outside'})
+        chart.set_legend({'none': True})
+        chart.set_x_axis({'name': 'Days', 'date_axis': True})
+        chart.set_y_axis({'name': 'Temperature', 'max': max_out_temp,
+                          'min': min_out_temp})
+        chart.set_size({'x_scale': 3, 'y_scale': 2})
+        chart.add_series({'categories': ['Raw Data', 1, 0, i, 0],
+                          'values': ['Raw Data', 1, 1, i, 1],
+                          'line': {'color': 'green'}})
+        chart.add_series({'values': ['Raw Data', 1, 2, i, 2],
+                          'line': {'color': 'blue'}})
+        sheet.insert_chart('A62', chart)
+
+        chart = book.add_chart({'type': 'line'})
+        chart.set_title({'name': 'Ammonia'})
+        chart.set_legend({'none': True})
+        chart.set_x_axis({'name': 'Days', 'date_axis': True})
+        chart.set_y_axis({'name': 'ppm', 'max': max_ammonia,
+                          'min': min_ammonia})
+        chart.set_size({'x_scale': 3, 'y_scale': 2})
+        chart.add_series({'categories': ['Raw Data', 1, 0, i, 0],
+                          'values': ['Raw Data', 1, 5, i, 5],
+                          'line': {'color': 'red'}})
+        sheet.insert_chart('A93', chart)
+
+        book.close()
+
+        return report_file
